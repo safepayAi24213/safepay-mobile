@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { Stack, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,21 +22,68 @@ import { MFAProvider } from '@/lib/mfa';
 import { RealtimeProvider } from '@/lib/realtime';
 import { useAuth } from '@/lib/auth-context';
 import { auth, ApiError } from '@/lib/api';
+import { fireLocal } from '@/lib/notifications';
+
+const LOGO = require('@/assets/images/splashlogo.png');
+
+// Notify the user when their registration decision changes (pending → approved
+// or pending → rejected). Fires a system banner + an in-app alert.
+function notifyDecision(
+  prev: string | undefined,
+  next: string | undefined,
+  reason?: string | null,
+) {
+  if (prev === next) return;
+  if (next === 'approved') {
+    void fireLocal({
+      title: 'Account approved 🎉',
+      body: 'Your SafePay account has been approved. Welcome!',
+    });
+    Alert.alert('Account approved 🎉', 'Your account has been approved. Welcome to SafePay!');
+  } else if (next === 'rejected') {
+    const body = reason
+      ? `Reason: ${reason}`
+      : 'Your registration was not approved. Please review and resubmit your ID.';
+    void fireLocal({ title: 'Registration rejected', body });
+    Alert.alert('Registration rejected', body);
+  }
+}
 
 export default function AppLayout() {
   const { user, token, updateUser, signOut } = useAuth();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
 
+  // While the account is pending, silently re-check approval every 15s so the
+  // app unlocks on its own the moment compliance approves — no tap needed.
+  useEffect(() => {
+    if (!token || user?.registration_status !== 'pending_review') return;
+    const id = setInterval(async () => {
+      try {
+        const updated = await auth.me(token);
+        notifyDecision(user?.registration_status, updated.registration_status, updated.rejection_reason);
+        updateUser(updated);
+      } catch {
+        // Ignore transient errors; keep polling.
+      }
+    }, 15000);
+    return () => clearInterval(id);
+  }, [token, user?.registration_status, updateUser]);
+
+  const handleLogout = () => {
+    // Clear the session, then send the user to the login page (there is no
+    // global auth gate, so we navigate explicitly).
+    signOut();
+    router.replace('/(auth)/login');
+  };
+
   const handleRefresh = async () => {
     if (!token) return;
     setRefreshing(true);
     try {
       const updated = await auth.me(token);
+      notifyDecision(user?.registration_status, updated.registration_status, updated.rejection_reason);
       updateUser(updated);
-      if (updated.registration_status === 'approved') {
-        Alert.alert('Approved!', 'Your account has been approved. Welcome to SafePay.');
-      }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not refresh status.';
       Alert.alert('Error', msg);
@@ -51,12 +99,9 @@ export default function AppLayout() {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.container}>
-          {/* Logo Header */}
+          {/* Official logo */}
           <View style={styles.logoRow}>
-            <View style={styles.logoIcon}>
-              <Ionicons name="shield-checkmark" size={20} color={Brand.primary} />
-            </View>
-            <Text style={styles.logoText}>SafePay</Text>
+            <Image source={LOGO} style={styles.logo} contentFit="contain" />
           </View>
 
           {/* Status Display */}
@@ -82,7 +127,7 @@ export default function AppLayout() {
             {!isPending && user.rejection_reason && (
               <View style={styles.rejectionCard}>
                 <Text style={styles.rejectionLabel}>REASON FOR REJECTION:</Text>
-                <Text style={styles.rejectionText}>"{user.rejection_reason}"</Text>
+                <Text style={styles.rejectionText}>&ldquo;{user.rejection_reason}&rdquo;</Text>
               </View>
             )}
           </View>
@@ -120,7 +165,7 @@ export default function AppLayout() {
             )}
 
             <Pressable
-              onPress={signOut}
+              onPress={handleLogout}
               style={({ pressed }) => [
                 styles.btnSecondary,
                 pressed && { opacity: 0.8 },
@@ -173,23 +218,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
     marginTop: Spacing.md,
   },
-  logoIcon: {
-    padding: 6,
-    borderRadius: Radius.sm,
-    backgroundColor: `${Brand.primary}15`,
-    borderWidth: 1,
-    borderColor: `${Brand.primary}20`,
-  },
-  logoText: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: Brand.text,
-    letterSpacing: -0.5,
+  logo: {
+    width: 150,
+    height: 64,
   },
   statusBox: {
     alignItems: 'center',

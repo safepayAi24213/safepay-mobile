@@ -1,8 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, type ErrorBoundaryProps, type Href } from 'expo-router';
-import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Brand, Radius, Spacing } from '@/constants/theme';
@@ -11,10 +10,6 @@ import { avatarUri } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useAvatarPicker } from '@/lib/avatar';
 import { useConfirm } from '@/lib/confirm';
-import { useBiometrics } from '@/lib/biometrics';
-import { useLiteMode } from '@/lib/lite-mode';
-import { NAIROBI, setDemoLocation } from '@/lib/location';
-import { ensurePermission, fireLocal } from '@/lib/notifications';
 
 function initialsOf(full?: string | null) {
   if (!full) return '··';
@@ -23,12 +18,6 @@ function initialsOf(full?: string | null) {
   const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
   return (first + last).toUpperCase() || '··';
 }
-
-type Section = {
-  key: string;
-  title: string;
-  rows: Row[];
-};
 
 type Row = {
   key: string;
@@ -60,19 +49,10 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 export default function Profile() {
   const router = useRouter();
-  const { liteMode, setLiteMode, isOnline, setOnline, queue, flushQueue } = useLiteMode();
-  const { capability, enabled: bioEnabled, setEnabled: setBioEnabled } = useBiometrics();
   const { frozen, freeze, unfreeze } = useAccountState();
   const { user, signOut } = useAuth();
   const { busy: avatarBusy, fromCamera, fromLibrary, remove: removeAvatar } = useAvatarPicker();
   const confirm = useConfirm();
-  const [notifEnabled, setNotifEnabled] = useState(false);
-  const [simulateFar, setSimulateFar] = useState(false);
-
-  const toggleSimulateFar = (on: boolean) => {
-    setSimulateFar(on);
-    setDemoLocation(on ? NAIROBI : null);
-  };
 
   const displayName = user?.full_name ?? 'Your account';
   const displayPhone = user?.phone ?? user?.email ?? '';
@@ -103,149 +83,70 @@ export default function Profile() {
     if (ok) freeze('user_request');
   };
 
-  const handleEnableBio = async (value: boolean) => {
-    if (!value) {
-      setBioEnabled(false);
-      return;
-    }
-    if (!capability.available) {
-      Alert.alert('Not available', 'This device has no biometric hardware.');
-      return;
-    }
-    if (!capability.enrolled) {
-      Alert.alert(
-        `Set up ${capability.label} first`,
-        `Open your device Settings and enrol ${capability.label}, then come back.`,
-      );
-      return;
-    }
-    setBioEnabled(true);
-  };
-
-  const handleEnableNotifs = async (value: boolean) => {
-    if (!value) {
-      setNotifEnabled(false);
-      return;
-    }
-    const ok = await ensurePermission();
-    if (!ok) {
-      Alert.alert(
-        'Notifications blocked',
-        'Enable them in your device Settings under SafePay → Notifications.',
-      );
-      return;
-    }
-    setNotifEnabled(true);
-  };
-
-  const sendTestNotification = () => {
-    fireLocal({
-      title: 'SafePay AI · Test alert',
-      body: 'If you can read this, push notifications are working.',
-      kind: 'test',
-    });
-  };
-
-  const sections: Section[] = [
+  // Single ordered list: identity → money → security → preferences → info.
+  const menuRows: Row[] = [
     {
-      key: 'account',
-      title: 'Account',
-      rows: [
-        {
-          key: 'personal',
-          icon: 'person-outline',
-          label: 'Personal info',
-          hint: 'Name, email, phone, ID',
-          href: '/(app)/settings/personal-info',
-        },
-        {
-          key: 'mobilemoney',
-          icon: 'wallet-outline',
-          label: 'Linked accounts',
-          hint: 'MTN MoMo · Airtel Money',
-          href: '/(app)/settings/linked-accounts',
-        },
-        {
-          key: 'notifications',
-          icon: 'notifications-outline',
-          label: 'Notifications',
-          hint: 'Push, SMS, email preferences',
-          href: '/(app)/settings/notifications',
-        },
-      ],
+      key: 'personal',
+      icon: 'person-outline',
+      label: 'Personal info',
+      hint: 'Name, phone, ID',
+      href: '/(app)/settings/personal-info',
     },
     {
-      key: 'security',
-      title: 'Security',
-      rows: [
-        {
-          key: 'sessions',
-          icon: 'phone-portrait-outline',
-          label: 'Active sessions',
-          hint: 'Devices currently signed in',
-          href: '/(app)/settings/sessions',
-          tint: Brand.primary,
-        },
-        {
-          key: 'login-history',
-          icon: 'time-outline',
-          label: 'Login history',
-          hint: 'Recent sign-in activity',
-          href: '/(app)/settings/login-history',
-          tint: Brand.secondary,
-        },
-        {
-          key: 'devices',
-          icon: 'hardware-chip-outline',
-          label: 'Trusted devices',
-          hint: 'Skip extra checks here',
-          href: '/(app)/settings/devices',
-          tint: Brand.ai,
-        },
-        {
-          key: 'mfa',
-          icon: 'shield-checkmark-outline',
-          label: 'Two-factor verification',
-          hint: 'SMS code or app PIN for high-risk payments',
-          href: '/(app)/settings/mfa',
-          tint: Brand.success,
-        },
-        {
-          key: 'change-pin',
-          icon: 'key-outline',
-          label: 'Change PIN',
-          hint: 'Update your transaction PIN',
-          href: '/(app)/settings/change-pin',
-        },
-      ],
+      key: 'mobilemoney',
+      icon: 'wallet-outline',
+      label: 'Linked accounts',
+      hint: 'MTN MoMo · Airtel Money',
+      href: '/(app)/settings/linked-accounts',
+      tint: Brand.primary,
+    },
+    // Rendered with its own dynamic freeze/unfreeze styling in the map below.
+    { key: 'freeze', icon: 'snow-outline', label: 'Freeze account' },
+    {
+      key: 'change-pin',
+      icon: 'key-outline',
+      label: 'Change PIN',
+      hint: 'Update your transaction PIN',
+      href: '/(app)/settings/change-pin',
+      tint: Brand.success,
     },
     {
-      key: 'support',
-      title: 'Support',
-      rows: [
-        {
-          key: 'disputes',
-          icon: 'shield-half-outline',
-          label: 'Disputes',
-          hint: 'Track fraud reports you’ve raised',
-          href: '/(app)/settings/disputes',
-          tint: Brand.danger,
-        },
-        {
-          key: 'contact',
-          icon: 'chatbubble-ellipses-outline',
-          label: 'Support chat',
-          hint: 'Message our customer-care team',
-          href: '/(app)/settings/support',
-          tint: Brand.primary,
-        },
-        {
-          key: 'about',
-          icon: 'information-circle-outline',
-          label: 'About SafePay',
-          href: '/(app)/settings/about',
-        },
-      ],
+      key: 'mfa',
+      icon: 'shield-checkmark-outline',
+      label: 'Two-factor verification',
+      hint: 'SMS code or app PIN for high-risk payments',
+      href: '/(app)/settings/mfa',
+      tint: Brand.success,
+    },
+    {
+      key: 'sessions',
+      icon: 'phone-portrait-outline',
+      label: 'Active sessions',
+      hint: 'Devices currently signed in',
+      href: '/(app)/settings/sessions',
+      tint: Brand.primary,
+    },
+    {
+      key: 'login-history',
+      icon: 'time-outline',
+      label: 'Login history',
+      hint: 'Recent sign-in activity',
+      href: '/(app)/settings/login-history',
+      tint: Brand.secondary,
+    },
+    {
+      key: 'notifications',
+      icon: 'notifications-outline',
+      label: 'Notifications',
+      hint: 'Push, SMS, email preferences',
+      href: '/(app)/settings/notifications',
+      tint: Brand.ai,
+    },
+    {
+      key: 'about',
+      icon: 'information-circle-outline',
+      label: 'About SafePay',
+      href: '/(app)/settings/about',
     },
   ];
 
@@ -292,213 +193,66 @@ export default function Profile() {
           </View>
         </View>
 
-        {/* Security shortcuts */}
-        <View style={{ gap: 8 }}>
-          <Text style={styles.sectionTitle}>Security shortcuts</Text>
-          <View style={styles.list}>
-            <View style={styles.toggleRow}>
-              <View style={[styles.rowIcon, { backgroundColor: Brand.primarySoft }]}>
-                <Ionicons
-                  name={capability.kind === 'face' ? 'scan-outline' : 'finger-print-outline'}
-                  size={20}
-                  color={Brand.primary}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowLabel}>Sign in with {capability.label}</Text>
-                <Text style={styles.rowHint}>
-                  {capability.available
-                    ? capability.enrolled
-                      ? `Faster login using your device's ${capability.label}`
-                      : `Enrol ${capability.label} in device Settings to enable`
-                    : 'No biometric hardware on this device'}
-                </Text>
-              </View>
-              <Switch
-                value={bioEnabled}
-                onValueChange={handleEnableBio}
-                disabled={!capability.available || !capability.enrolled}
-                trackColor={{ false: Brand.border, true: Brand.primary }}
-                thumbColor={Brand.text}
-              />
-            </View>
-
-            <View style={styles.toggleRow}>
-              <View style={[styles.rowIcon, { backgroundColor: Brand.aiSoft }]}>
-                <Ionicons name="notifications-outline" size={20} color={Brand.ai} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowLabel}>Push notifications</Text>
-                <Text style={styles.rowHint}>
-                  {notifEnabled
-                    ? 'You’ll get an instant alert when SafePay AI flags something'
-                    : 'Turn on to receive alerts about suspicious activity'}
-                </Text>
-              </View>
-              <Switch
-                value={notifEnabled}
-                onValueChange={handleEnableNotifs}
-                trackColor={{ false: Brand.border, true: Brand.ai }}
-                thumbColor={Brand.text}
-              />
-            </View>
-
-            {notifEnabled && (
-              <Pressable
-                onPress={sendTestNotification}
-                style={({ pressed }) => [styles.row, pressed && { backgroundColor: Brand.surfaceElevated }]}>
-                <View style={[styles.rowIcon, { backgroundColor: Brand.aiSoft }]}>
-                  <Ionicons name="send-outline" size={18} color={Brand.ai} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowLabel}>Send a test notification</Text>
-                  <Text style={styles.rowHint}>Verify your notifications work</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={Brand.textMuted} />
-              </Pressable>
-            )}
-
-            <Pressable
-              onPress={frozen ? unfreeze : handleFreeze}
-              style={({ pressed }) => [styles.row, pressed && { backgroundColor: Brand.surfaceElevated }]}>
-              <View
-                style={[
-                  styles.rowIcon,
-                  { backgroundColor: frozen ? Brand.successSoft : Brand.criticalSoft },
-                ]}>
-                <Ionicons
-                  name={frozen ? 'lock-open-outline' : 'snow-outline'}
-                  size={20}
-                  color={frozen ? Brand.success : Brand.critical}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    styles.rowLabel,
-                    { color: frozen ? Brand.success : Brand.critical },
-                  ]}>
-                  {frozen ? 'Unfreeze account' : 'Freeze account'}
-                </Text>
-                <Text style={styles.rowHint}>
-                  {frozen
-                    ? 'Allow payments again'
-                    : 'Block all payments instantly if you suspect fraud'}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Brand.textMuted} />
-            </Pressable>
-
-            <View style={styles.toggleRow}>
-              <View style={[styles.rowIcon, { backgroundColor: Brand.warningSoft }]}>
-                <Ionicons name="location-outline" size={20} color={Brand.warning} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowLabel}>Simulate distant location</Text>
-                <Text style={styles.rowHint}>
-                  Demo: send as if you’re far away, to trigger the location-mismatch check
-                </Text>
-              </View>
-              <Switch
-                value={simulateFar}
-                onValueChange={toggleSimulateFar}
-                trackColor={{ false: Brand.border, true: Brand.warning }}
-                thumbColor={Brand.text}
-              />
-            </View>
-          </View>
-        </View>
-
-        {/* Connectivity / Low-bandwidth controls */}
-        <View style={{ gap: 8 }}>
-          <Text style={styles.sectionTitle}>Connectivity</Text>
-          <View style={styles.list}>
-            <View style={styles.toggleRow}>
-              <View style={[styles.rowIcon, { backgroundColor: Brand.aiSoft }]}>
-                <Ionicons name="leaf-outline" size={20} color={Brand.ai} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowLabel}>Lite mode</Text>
-                <Text style={styles.rowHint}>
-                  Minimal UI · less data · USSD-style menu for low bandwidth
-                </Text>
-              </View>
-              <Switch
-                value={liteMode}
-                onValueChange={setLiteMode}
-                trackColor={{ false: Brand.border, true: Brand.ai }}
-                thumbColor={Brand.text}
-              />
-            </View>
-            <View style={styles.toggleRow}>
-              <View
-                style={[
-                  styles.rowIcon,
-                  { backgroundColor: isOnline ? Brand.successSoft : Brand.warningSoft },
-                ]}>
-                <Ionicons
-                  name={isOnline ? 'cloud-done-outline' : 'cloud-offline-outline'}
-                  size={20}
-                  color={isOnline ? Brand.success : Brand.warning}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowLabel}>Connection · {isOnline ? 'Online' : 'Offline'}</Text>
-                <Text style={styles.rowHint}>
-                  {isOnline
-                    ? 'Toggle off to simulate a poor connection (demo)'
-                    : `Toggling on will sync ${queue.length} queued payment${queue.length === 1 ? '' : 's'}`}
-                </Text>
-              </View>
-              <Switch
-                value={isOnline}
-                onValueChange={(v) => {
-                  setOnline(v);
-                  if (v && queue.length > 0) {
-                    setTimeout(() => flushQueue(), 400);
-                  }
-                }}
-                trackColor={{ false: Brand.border, true: Brand.success }}
-                thumbColor={Brand.text}
-              />
-            </View>
-          </View>
-        </View>
-
-        {/* Sections */}
-        {sections.map((s) => (
-          <View key={s.key} style={{ gap: 8 }}>
-            <Text style={styles.sectionTitle}>{s.title}</Text>
-            <View style={styles.list}>
-              {s.rows.map((r) => (
+        {/* All settings in one card */}
+        <View style={styles.list}>
+          {menuRows.map((r) => {
+            // The freeze row has its own dynamic (frozen/unfrozen) styling.
+            if (r.key === 'freeze') {
+              return (
                 <Pressable
-                  key={r.key}
-                  onPress={() => {
-                    if (r.href) router.push(r.href);
-                    else r.onPress?.();
-                  }}
+                  key="freeze"
+                  onPress={frozen ? unfreeze : handleFreeze}
                   style={({ pressed }) => [styles.row, pressed && { backgroundColor: Brand.surfaceElevated }]}>
                   <View
                     style={[
                       styles.rowIcon,
-                      { backgroundColor: r.tint ? `${r.tint}26` : Brand.surfaceElevated },
+                      { backgroundColor: frozen ? Brand.successSoft : Brand.criticalSoft },
                     ]}>
                     <Ionicons
-                      name={r.icon}
+                      name={frozen ? 'lock-open-outline' : 'snow-outline'}
                       size={20}
-                      color={r.tint ?? Brand.text}
+                      color={frozen ? Brand.success : Brand.critical}
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowLabel}>{r.label}</Text>
-                    {r.hint && <Text style={styles.rowHint}>{r.hint}</Text>}
+                    <Text
+                      style={[styles.rowLabel, { color: frozen ? Brand.success : Brand.critical }]}>
+                      {frozen ? 'Unfreeze account' : 'Freeze account'}
+                    </Text>
+                    <Text style={styles.rowHint}>
+                      {frozen
+                        ? 'Allow payments again'
+                        : 'Block all payments instantly if you suspect fraud'}
+                    </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={Brand.textMuted} />
                 </Pressable>
-              ))}
-            </View>
-          </View>
-        ))}
+              );
+            }
+            return (
+              <Pressable
+                key={r.key}
+                onPress={() => {
+                  if (r.href) router.push(r.href);
+                  else r.onPress?.();
+                }}
+                style={({ pressed }) => [styles.row, pressed && { backgroundColor: Brand.surfaceElevated }]}>
+                <View
+                  style={[
+                    styles.rowIcon,
+                    { backgroundColor: r.tint ? `${r.tint}26` : Brand.surfaceElevated },
+                  ]}>
+                  <Ionicons name={r.icon} size={20} color={r.tint ?? Brand.text} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowLabel}>{r.label}</Text>
+                  {r.hint && <Text style={styles.rowHint}>{r.hint}</Text>}
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Brand.textMuted} />
+              </Pressable>
+            );
+          })}
+        </View>
 
         {/* Sign out */}
         <Pressable

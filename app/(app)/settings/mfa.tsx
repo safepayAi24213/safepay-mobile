@@ -7,7 +7,6 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { Brand, Radius, Spacing } from '@/constants/theme';
 import { ApiError, auth } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
-import { useBiometrics } from '@/lib/biometrics';
 import { useMFA, type Method } from '@/lib/mfa';
 
 type Option = {
@@ -27,14 +26,13 @@ const OPTIONS: Option[] = [
   {
     value: 'pin',
     icon: 'keypad-outline',
-    title: 'App PIN / biometric',
-    detail: 'Confirm with your transaction PIN (or biometric) right inside the app.',
+    title: 'App PIN',
+    detail: 'Confirm with your transaction PIN right inside the app.',
   },
 ];
 
 export default function MfaSetupScreen() {
   const { user } = useAuth();
-  const { enabled: bioEnabled } = useBiometrics();
   const { enabled, setEnabled, method, setMethod } = useMFA();
   const [sending, setSending] = useState(false);
 
@@ -141,15 +139,6 @@ export default function MfaSetupScreen() {
           </Pressable>
         )}
 
-        {method === 'pin' && !bioEnabled && (
-          <View style={styles.note}>
-            <Ionicons name="information-circle-outline" size={16} color={Brand.textMuted} />
-            <Text style={styles.noteText}>
-              Tip: turn on biometric sign-in in Profile to confirm with Face ID / fingerprint
-              instead of typing your PIN.
-            </Text>
-          </View>
-        )}
       </ScrollView>
     </SafeAreaView>
   );

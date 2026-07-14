@@ -24,6 +24,12 @@ import { useAuth } from '@/lib/auth-context';
 
 type DocType = 'national_id' | 'passport';
 
+// Rwanda formats:
+//  • National ID — exactly 16 digits (numeric only).
+//  • Passport    — 1–2 letters followed by 6–8 digits, e.g. PC123456.
+const RW_NATIONAL_ID = /^\d{16}$/;
+const RW_PASSPORT = /^[A-Z]{1,2}\d{6,8}$/;
+
 export default function VerifyId() {
   const router = useRouter();
   const { token } = useAuth();
@@ -35,35 +41,75 @@ export default function VerifyId() {
   const [backImageUri, setBackImageUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const numberValid =
+    docType === 'national_id' ? RW_NATIONAL_ID.test(docNumber) : RW_PASSPORT.test(docNumber);
+
+  // Show a format hint only once the user has typed something invalid.
+  const numberError =
+    docNumber.length > 0 && !numberValid
+      ? docType === 'national_id'
+        ? 'National ID must be exactly 16 digits.'
+        : 'Enter a valid passport number (e.g. PC123456).'
+      : undefined;
+
   const canSubmit =
-    docNumber.length >= 6 &&
+    numberValid &&
     frontImageUri !== null &&
     (docType === 'passport' || backImageUri !== null);
 
-  const pickImage = async (side: 'front' | 'back') => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
+  // National ID accepts digits only (text rejected); passport is alphanumeric.
+  const onChangeNumber = (t: string) => {
+    if (docType === 'national_id') {
+      setDocNumber(t.replace(/[^0-9]/g, '').slice(0, 16));
+    } else {
+      setDocNumber(t.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 9));
+    }
+  };
+
+  const applyImage = (side: 'front' | 'back', uri: string) => {
+    if (side === 'front') setFrontImageUri(uri);
+    else setBackImageUri(uri);
+  };
+
+  const captureFromCamera = async (side: 'front' | 'back') => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission required', 'We need camera access to take a photo of your document.');
+      return;
+    }
+    try {
+      const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+      if (!result.canceled && result.assets[0]?.uri) applyImage(side, result.assets[0].uri);
+    } catch {
+      Alert.alert('Camera error', 'Something went wrong. Please try again.');
+    }
+  };
+
+  const pickFromLibrary = async (side: 'front' | 'back') => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
       Alert.alert('Permission required', 'We need access to your photo library to pick your document image.');
       return;
     }
-
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
         quality: 0.8,
       });
-
-      if (!result.canceled && result.assets[0].uri) {
-        if (side === 'front') {
-          setFrontImageUri(result.assets[0].uri);
-        } else {
-          setBackImageUri(result.assets[0].uri);
-        }
-      }
-    } catch (err) {
+      if (!result.canceled && result.assets[0]?.uri) applyImage(side, result.assets[0].uri);
+    } catch {
       Alert.alert('Error picking image', 'Something went wrong. Please try again.');
     }
+  };
+
+  // Let the user choose between camera and gallery for each document image.
+  const chooseImageSource = (side: 'front' | 'back') => {
+    Alert.alert('Add document photo', 'Take a photo or upload from your gallery.', [
+      { text: 'Take photo', onPress: () => captureFromCamera(side) },
+      { text: 'Upload from gallery', onPress: () => pickFromLibrary(side) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const submit = async () => {
@@ -118,6 +164,7 @@ export default function VerifyId() {
                   key={t}
                   onPress={() => {
                     setDocType(t);
+                    setDocNumber('');
                     setFrontImageUri(null);
                     setBackImageUri(null);
                   }}
@@ -131,27 +178,27 @@ export default function VerifyId() {
           </View>
 
           <TextField
-            label={docType === 'national_id' ? 'ID number' : 'Passport number'}
+            label={docType === 'national_id' ? 'National ID number' : 'Passport number'}
             leftIcon="card-outline"
-            placeholder={
-              docType === 'national_id' ? 'Enter your ID number' : 'Enter your passport number'
-            }
-            autoCapitalize="characters"
+            placeholder={docType === 'national_id' ? '16-digit ID number' : 'e.g. PC123456'}
+            keyboardType={docType === 'national_id' ? 'number-pad' : 'default'}
+            autoCapitalize={docType === 'national_id' ? 'none' : 'characters'}
             value={docNumber}
-            onChangeText={setDocNumber}
+            onChangeText={onChangeNumber}
+            error={numberError}
           />
 
           <View style={styles.uploads}>
             <UploadSlot
               label={docType === 'passport' ? 'Photo page' : 'Front of ID'}
               imageUri={frontImageUri}
-              onPress={() => pickImage('front')}
+              onPress={() => chooseImageSource('front')}
             />
             {docType === 'national_id' && (
               <UploadSlot
                 label="Back of ID"
                 imageUri={backImageUri}
-                onPress={() => pickImage('back')}
+                onPress={() => chooseImageSource('back')}
               />
             )}
           </View>
@@ -193,7 +240,7 @@ function UploadSlot({ label, imageUri, onPress }: SlotProps) {
       <Text style={[styles.slotLabel, imageUri !== null && { color: Brand.success }]}>
         {imageUri ? 'Captured' : label}
       </Text>
-      {!imageUri && <Text style={styles.slotHint}>Tap to upload</Text>}
+      {!imageUri && <Text style={styles.slotHint}>Photo or upload</Text>}
     </Pressable>
   );
 }

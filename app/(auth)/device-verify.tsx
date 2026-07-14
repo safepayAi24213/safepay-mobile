@@ -144,7 +144,7 @@ export default function DeviceVerify() {
             <View style={styles.resendRow}>
               {seconds > 0 ? (
                 <Text style={styles.resendMuted}>
-                  Didn't get it? Resend in{' '}
+                  Didn&apos;t get it? Resend in{' '}
                   <Text style={styles.resendSeconds}>{seconds}s</Text>
                 </Text>
               ) : (
@@ -171,7 +171,7 @@ export default function DeviceVerify() {
             onPress={() => router.replace('/(auth)/welcome')}
             style={styles.notMe}
             hitSlop={8}>
-            <Text style={styles.notMeText}>This isn't me</Text>
+            <Text style={styles.notMeText}>This isn&apos;t me</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>

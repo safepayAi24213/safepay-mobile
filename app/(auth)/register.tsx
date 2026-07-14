@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -14,9 +14,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/button';
+import { OtpInput } from '@/components/ui/otp-input';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { TextField } from '@/components/ui/text-field';
-import { Brand, Spacing } from '@/constants/theme';
+import { Brand, Radius, Spacing } from '@/constants/theme';
 import { ApiError, auth } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useDevice } from '@/lib/device-context';
@@ -33,44 +34,94 @@ export default function Register() {
         platform: fingerprint.platform,
       }
     : undefined;
+
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [sentForPhone, setSentForPhone] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [devCode, setDevCode] = useState<string | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const canSubmit = name && email && phone && password.length >= 6 && agreed;
+  // Send (or resend) the SMS OTP for a given phone number.
+  const sendOtp = async (target: string) => {
+    if (sending) return;
+    setSending(true);
+    try {
+      const otp = await auth.otp.send(target, 'register');
+      setSentForPhone(target);
+      setOtpSent(true);
+      setVerified(false);
+      setDevCode(otp.debug_code ?? null);
+      setCode(otp.debug_code ?? '');
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Could not send the code. Try again.';
+      Alert.alert('Could not send code', msg);
+    } finally {
+      setSending(false);
+    }
+  };
 
-  const handleSubmit = async () => {
-    if (!canSubmit) return;
+  const onChangePhone = (t: string) => {
+    const digits = t.replace(/[^0-9]/g, '').slice(0, 10);
+    setPhone(digits);
+    if (digits.length < 10) {
+      // Editing the number invalidates any sent/verified code.
+      if (otpSent || verified) {
+        setOtpSent(false);
+        setVerified(false);
+        setCode('');
+        setDevCode(null);
+        setSentForPhone('');
+      }
+    } else if (digits !== sentForPhone) {
+      // Number complete — auto-send the verification code.
+      sendOtp(digits);
+    }
+  };
+
+  // Auto-verify once all 6 digits are present (covers both typed and the
+  // dev-prefilled code). A ref guards against concurrent verifies — we
+  // deliberately keep `verifying` out of the deps so toggling it can't
+  // re-trigger / cancel the in-flight request.
+  const verifyingRef = useRef(false);
+  useEffect(() => {
+    if (!otpSent || verified || code.length !== 6 || verifyingRef.current) return;
+    verifyingRef.current = true;
+    setVerifying(true);
+    (async () => {
+      try {
+        await auth.otp.verify(sentForPhone || phone, code, 'register');
+        setVerified(true);
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : 'Incorrect or expired code.';
+        Alert.alert('Invalid code', msg);
+        setCode('');
+      } finally {
+        setVerifying(false);
+        verifyingRef.current = false;
+      }
+    })();
+  }, [code, otpSent, verified, sentForPhone, phone]);
+
+  const canContinue = name.trim().length >= 2 && verified && agreed;
+
+  const handleContinue = async () => {
+    if (!canContinue) return;
     setLoading(true);
     try {
-      // 1. Create the account in Postgres + sign in.
-      const token = await auth.register({
-        email: email.trim(),
-        full_name: name.trim(),
-        phone: phone.trim(),
-        password,
-      }, deviceCtx);
+      // Passwordless signup — backend stores a random hash; the user sets a PIN
+      // in the next onboarding steps.
+      const token = await auth.register(
+        { full_name: name.trim(), phone: phone.trim() },
+        deviceCtx,
+      );
       setSession(token);
-
-      // 2. Issue an OTP for phone verification. The backend prints the code to
-      // its console; in production this would be an SMS.
-      const otp = await auth.otp.send(phone.trim(), 'register');
-
-      // 3. Move to the OTP screen. In dev we pre-fill via params so the user
-      // can see the code; in production debug_code will be null.
-      router.push({
-        pathname: '/(auth)/otp',
-        params: {
-          next: 'verify-id',
-          phone: phone.trim(),
-          context: 'register',
-          purpose: 'register',
-          dev_code: otp.debug_code ?? '',
-        },
-      });
+      router.replace({ pathname: '/(auth)/verify-id', params: { phone: phone.trim() } });
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Something went wrong. Try again.';
       Alert.alert('Registration failed', msg);
@@ -93,7 +144,7 @@ export default function Register() {
           automaticallyAdjustKeyboardInsets>
           <View style={styles.header}>
             <Text style={styles.title}>Create your account</Text>
-            <Text style={styles.subtitle}>We&apos;ll send a code to verify your phone.</Text>
+            <Text style={styles.subtitle}>We&apos;ll text a code to verify your phone.</Text>
           </View>
 
           <View style={styles.form}>
@@ -106,52 +157,73 @@ export default function Register() {
               onChangeText={setName}
             />
             <TextField
-              label="Email"
-              leftIcon="mail-outline"
-              placeholder="Enter your email"
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              value={email}
-              onChangeText={setEmail}
-            />
-            <TextField
               label="Phone number"
               leftIcon="call-outline"
-              placeholder="Enter your phone number"
+              placeholder="07XX XXX XXX"
               keyboardType="phone-pad"
               autoComplete="tel"
               value={phone}
-              onChangeText={setPhone}
-            />
-            <TextField
-              label="Password"
-              leftIcon="lock-closed-outline"
-              placeholder="Create a password"
-              password
-              autoComplete="new-password"
-              value={password}
-              onChangeText={setPassword}
+              onChangeText={onChangePhone}
             />
 
-            <Pressable
-              onPress={() => setAgreed((v) => !v)}
-              style={styles.terms}
-              hitSlop={6}>
-              <View style={[styles.checkbox, agreed && styles.checkboxOn]}>
-                {agreed && <Ionicons name="checkmark" size={16} color={Brand.textOnPrimary} />}
+            {/* Fallback button if the auto-send failed for a complete number. */}
+            {phone.length === 10 && !otpSent && (
+              <Button
+                label={sending ? 'Sending…' : 'Send code'}
+                variant="secondary"
+                onPress={() => sendOtp(phone)}
+                loading={sending}
+              />
+            )}
+
+            {otpSent && (
+              <View style={styles.otpSection}>
+                {verified ? (
+                  <View style={styles.verifiedRow}>
+                    <Ionicons name="checkmark-circle" size={20} color={Brand.success} />
+                    <Text style={styles.verifiedText}>Phone number verified</Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.otpLabel}>Enter the 6-digit code sent to {phone}</Text>
+                    <OtpInput value={code} onChange={setCode} />
+
+                    {devCode ? (
+                      <View style={styles.devHint}>
+                        <Text style={styles.devLabel}>DEV · code from backend console</Text>
+                        <Text style={styles.devCode}>{devCode}</Text>
+                      </View>
+                    ) : null}
+
+                    {verifying ? (
+                      <Text style={styles.verifyingText}>Verifying…</Text>
+                    ) : (
+                      <Pressable onPress={() => sendOtp(phone)} hitSlop={8} style={styles.resendBtn}>
+                        <Text style={styles.resendText}>Resend code</Text>
+                      </Pressable>
+                    )}
+                  </>
+                )}
               </View>
-              <Text style={styles.termsText}>
-                I agree to SafePay&apos;s <Text style={styles.link}>Terms</Text> and{' '}
-                <Text style={styles.link}>Privacy Policy</Text>.
-              </Text>
-            </Pressable>
+            )}
+
+            {verified && (
+              <Pressable onPress={() => setAgreed((v) => !v)} style={styles.terms} hitSlop={6}>
+                <View style={[styles.checkbox, agreed && styles.checkboxOn]}>
+                  {agreed && <Ionicons name="checkmark" size={16} color={Brand.textOnPrimary} />}
+                </View>
+                <Text style={styles.termsText}>
+                  I agree to SafePay&apos;s <Text style={styles.link}>Terms</Text> and{' '}
+                  <Text style={styles.link}>Privacy Policy</Text>.
+                </Text>
+              </Pressable>
+            )}
 
             <Button
               label="Continue"
-              onPress={handleSubmit}
+              onPress={handleContinue}
               loading={loading}
-              disabled={!canSubmit}
+              disabled={!canContinue}
             />
           </View>
         </ScrollView>
@@ -197,6 +269,67 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: Spacing.md,
+  },
+  otpSection: {
+    gap: Spacing.sm,
+  },
+  otpLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Brand.textSecondary,
+    textAlign: 'center',
+  },
+  verifiedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: Spacing.sm,
+  },
+  verifiedText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Brand.success,
+  },
+  verifyingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Brand.textMuted,
+    textAlign: 'center',
+  },
+  resendBtn: {
+    alignSelf: 'center',
+    paddingVertical: Spacing.xs,
+  },
+  resendText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Brand.primary,
+  },
+  devHint: {
+    alignSelf: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: Radius.md,
+    backgroundColor: Brand.aiSoft,
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.35)',
+    alignItems: 'center',
+    gap: 2,
+  },
+  devLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: Brand.ai,
+    textTransform: 'uppercase',
+  },
+  devCode: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 4,
+    color: Brand.text,
+    fontFamily: 'Courier',
   },
   terms: {
     flexDirection: 'row',

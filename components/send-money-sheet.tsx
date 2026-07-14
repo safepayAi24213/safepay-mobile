@@ -54,10 +54,18 @@ function notifySent(amount: number, recipientName: string) {
   });
 }
 
+/** Normalise a Rwandan number to local 0-prefixed digits for comparison. */
+function toLocalDigits(p: string): string {
+  let d = (p || '').replace(/\D/g, '');
+  if (d.startsWith('250')) d = d.slice(3);
+  if (d.length === 9 && d.startsWith('7')) d = '0' + d;
+  return d;
+}
+
 export function SendMoneySheet({ visible, onClose, onComplete }: Props) {
   const { isOnline, queueTransaction } = useLiteMode();
   const { frozen } = useAccountState();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [step, setStep] = useState<Step>('recipient');
   const [phone, setPhone] = useState('');
   const [recipientName, setRecipientName] = useState<string | null>(null);
@@ -308,7 +316,12 @@ export function SendMoneySheet({ visible, onClose, onComplete }: Props) {
   const availableBalance = selectedSource?.balance ?? 0;
   const insufficientFunds = sources.length > 0 && numericAmount > 0 && total > availableBalance;
 
-  const recipientValid = phone.replace(/\D/g, '').length >= 9;
+  // Block sending to your own number — a wallet can't transfer to itself.
+  const isOwnNumber =
+    !!user?.phone &&
+    toLocalDigits(phone).length >= 9 &&
+    toLocalDigits(phone) === toLocalDigits(user.phone);
+  const recipientValid = phone.replace(/\D/g, '').length >= 9 && !isOwnNumber;
   const amountValid = numericAmount >= 1 && sources.length > 0 && !insufficientFunds;
 
   return (
@@ -358,6 +371,7 @@ export function SendMoneySheet({ visible, onClose, onComplete }: Props) {
                   onChangePhone={setPhone}
                   onSelectRecent={selectRecent}
                   recents={recents}
+                  ownNumber={isOwnNumber}
                 />
               )}
               {step === 'amount' && (
@@ -480,15 +494,17 @@ function RecipientStep({
   onChangePhone,
   onSelectRecent,
   recents,
+  ownNumber,
 }: {
   phone: string;
   onChangePhone: (v: string) => void;
   onSelectRecent: (r: RecentRecipient) => void;
   recents: RecentRecipient[];
+  ownNumber?: boolean;
 }) {
   return (
     <View style={{ gap: Spacing.lg }}>
-      <View style={styles.field}>
+      <View style={[styles.field, ownNumber && styles.fieldError]}>
         <Ionicons name="call-outline" size={20} color={Brand.textMuted} />
         <TextInput
           style={styles.fieldInput}
@@ -500,6 +516,12 @@ function RecipientStep({
           selectionColor={Brand.primary}
         />
       </View>
+
+      {ownNumber && (
+        <Text style={styles.ownNumberError}>
+          You can&apos;t send money to your own number.
+        </Text>
+      )}
 
       {recents.length > 0 && (
       <View style={{ paddingBottom: Spacing.lg }}>
@@ -805,6 +827,15 @@ const styles = StyleSheet.create({
     borderColor: Brand.border,
     paddingHorizontal: Spacing.md,
     height: 54,
+  },
+  fieldError: {
+    borderColor: Brand.danger,
+  },
+  ownNumberError: {
+    marginTop: -Spacing.md,
+    fontSize: 13,
+    color: Brand.danger,
+    fontWeight: '600',
   },
   fieldInput: {
     flex: 1,

@@ -120,7 +120,7 @@ export type UserRole = 'user' | 'analyst' | 'admin';
 
 export type UserDTO = {
   id: string;
-  email: string;
+  email: string | null;
   full_name: string;
   phone: string | null;
   role: UserRole;
@@ -191,10 +191,10 @@ function deviceHeaders(ctx?: DeviceContext): Record<string, string> | undefined 
 export const auth = {
   register(
     input: {
-      email: string;
       full_name: string;
-      phone?: string;
-      password: string;
+      phone: string;
+      password?: string;
+      email?: string;
     },
     device?: DeviceContext,
   ) {
@@ -234,6 +234,22 @@ export const auth = {
     return request<{ reset: boolean }>('/api/v1/auth/reset-password', {
       method: 'POST',
       body: { email, code, new_password },
+    });
+  },
+
+  /** Phone-based reset for mobile customers: verifies the forgot_password OTP. */
+  resetPasswordPhone(phone: string, code: string, new_password: string) {
+    return request<{ reset: boolean }>('/api/v1/auth/reset-password-phone', {
+      method: 'POST',
+      body: { phone, code, new_password },
+    });
+  },
+
+  /** Phone-based PIN reset: verifies the forgot_password OTP, sets a new PIN. */
+  resetPinPhone(phone: string, code: string, pin: string) {
+    return request<{ reset: boolean }>('/api/v1/auth/reset-pin-phone', {
+      method: 'POST',
+      body: { phone, code, pin },
     });
   },
 

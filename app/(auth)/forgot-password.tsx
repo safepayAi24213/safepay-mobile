@@ -19,22 +19,22 @@ import { TextField } from '@/components/ui/text-field';
 import { Brand, Radius, Spacing } from '@/constants/theme';
 import { ApiError, auth } from '@/lib/api';
 
-type Step = 'email' | 'verify';
+type Step = 'phone' | 'verify';
 
 export default function ForgotPassword() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>('email');
-  const [email, setEmail] = useState('');
+  const [step, setStep] = useState<Step>('phone');
+  const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
-  const [newPassword, setNewPassword] = useState('');
+  const [newPin, setNewPin] = useState('');
   const [debugCode, setDebugCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const sendCode = async () => {
-    if (!email) return;
+    if (phone.trim().length < 6) return;
     setLoading(true);
     try {
-      const r = await auth.forgotPassword(email.trim());
+      const r = await auth.otp.send(phone.trim(), 'forgot_password');
       setDebugCode(r.debug_code);
       if (r.debug_code) setCode(r.debug_code);
       setStep('verify');
@@ -46,11 +46,11 @@ export default function ForgotPassword() {
   };
 
   const resetNow = async () => {
-    if (code.length !== 6 || newPassword.length < 8) return;
+    if (code.length !== 6 || newPin.length !== 4) return;
     setLoading(true);
     try {
-      await auth.resetPassword(email.trim(), code, newPassword);
-      Alert.alert('Password reset', 'You can now sign in with your new password.', [
+      await auth.resetPinPhone(phone.trim(), code, newPin);
+      Alert.alert('PIN reset', 'You can now sign in with your new PIN.', [
         { text: 'OK', onPress: () => router.replace('/(auth)/login') },
       ]);
     } catch (err) {
@@ -64,7 +64,7 @@ export default function ForgotPassword() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <ScreenHeader
         onBack={() => {
-          if (step === 'verify') setStep('email');
+          if (step === 'verify') setStep('phone');
           else router.back();
         }}
       />
@@ -79,27 +79,32 @@ export default function ForgotPassword() {
           automaticallyAdjustKeyboardInsets>
           <View style={styles.header}>
             <Text style={styles.title}>
-              {step === 'email' ? 'Forgot password?' : 'Enter reset code'}
+              {step === 'phone' ? 'Forgot password?' : 'Enter reset code'}
             </Text>
             <Text style={styles.subtitle}>
-              {step === 'email'
-                ? 'Enter the email on your account. We\'ll send a 6-digit reset code.'
-                : `We sent a code to ${email}. Enter it below and choose a new password.`}
+              {step === 'phone'
+                ? 'Enter the mobile number on your account. We\'ll send a 6-digit reset code.'
+                : `We sent a code to ${phone}. Enter it below and choose a new password.`}
             </Text>
           </View>
 
-          {step === 'email' ? (
+          {step === 'phone' ? (
             <View style={styles.form}>
               <TextField
-                label="Email"
-                leftIcon="mail-outline"
-                placeholder="you@example.com"
+                label="Mobile number"
+                leftIcon="call-outline"
+                placeholder="07XX XXX XXX"
                 autoCapitalize="none"
-                keyboardType="email-address"
-                value={email}
-                onChangeText={setEmail}
+                keyboardType="phone-pad"
+                value={phone}
+                onChangeText={(t) => setPhone(t.replace(/[^0-9]/g, '').slice(0, 10))}
               />
-              <Button label="Send code" onPress={sendCode} loading={loading} disabled={!email} />
+              <Button
+                label="Send code"
+                onPress={sendCode}
+                loading={loading}
+                disabled={phone.trim().length < 6}
+              />
             </View>
           ) : (
             <View style={styles.form}>
@@ -113,19 +118,21 @@ export default function ForgotPassword() {
               <OtpInput value={code} onChange={setCode} />
 
               <TextField
-                label="New password"
+                label="New PIN"
                 leftIcon="lock-closed-outline"
-                placeholder="At least 8 characters"
-                secureTextEntry
-                value={newPassword}
-                onChangeText={setNewPassword}
+                placeholder="4-digit PIN"
+                keyboardType="number-pad"
+                maxLength={4}
+                password
+                value={newPin}
+                onChangeText={(t) => setNewPin(t.replace(/[^0-9]/g, ''))}
               />
 
               <Button
-                label="Reset password"
+                label="Reset PIN"
                 onPress={resetNow}
                 loading={loading}
-                disabled={code.length !== 6 || newPassword.length < 8}
+                disabled={code.length !== 6 || newPin.length !== 4}
               />
 
               <Pressable onPress={sendCode} hitSlop={8} style={styles.resendBtn}>

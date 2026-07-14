@@ -52,8 +52,10 @@ export async function authenticateBiometric(prompt: string): Promise<boolean> {
   try {
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage: prompt,
-      cancelLabel: 'Use password instead',
-      disableDeviceFallback: false,
+      cancelLabel: 'Use PIN instead',
+      // Keep the prompt on Face ID / fingerprint only — don't fall back to the
+      // device passcode. The app's own PIN screen is the fallback.
+      disableDeviceFallback: true,
     });
     return result.success;
   } catch {

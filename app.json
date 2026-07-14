@@ -50,6 +50,12 @@
         {
           "locationWhenInUsePermission": "SafePay uses your location to detect transactions made from unusual places and protect you from fraud."
         }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "SafePay uses Face ID to let you sign in securely and approve payments."
+        }
       ]
     ],
     "experiments": {
