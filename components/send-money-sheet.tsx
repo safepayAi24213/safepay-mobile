@@ -18,7 +18,7 @@ import { Brand, Radius, Spacing } from '@/constants/theme';
 import { useAccountState } from '@/lib/account-state';
 import { ApiError, onboarding, risk as apiRisk, transactions as apiTransactions, wallets as apiWallets, type WalletDTO } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
-import { formatRWF } from '@/lib/format';
+import { amountWithCommas, formatRWF, sanitizeAmountInput } from '@/lib/format';
 import { useLiteMode } from '@/lib/lite-mode';
 import { getCurrentCoords, type Coords } from '@/lib/location';
 import { fireLocal } from '@/lib/notifications';
@@ -60,6 +60,19 @@ function toLocalDigits(p: string): string {
   if (d.startsWith('250')) d = d.slice(3);
   if (d.length === 9 && d.startsWith('7')) d = '0' + d;
   return d;
+}
+
+/**
+ * Keep phone input to a valid Rwandan length so the user can't type past it.
+ * Local form 07XXXXXXXX = 10 digits; +250 7XXXXXXXX = 12 digits. A single
+ * leading + is preserved; everything else is stripped to digits.
+ */
+function sanitizePhoneInput(raw: string): string {
+  const hasPlus = raw.trimStart().startsWith('+');
+  let digits = raw.replace(/\D/g, '');
+  const max = digits.startsWith('250') ? 12 : 10;
+  digits = digits.slice(0, max);
+  return (hasPlus ? '+' : '') + digits;
 }
 
 export function SendMoneySheet({ visible, onClose, onComplete }: Props) {
@@ -368,7 +381,7 @@ export function SendMoneySheet({ visible, onClose, onComplete }: Props) {
               {step === 'recipient' && (
                 <RecipientStep
                   phone={phone}
-                  onChangePhone={setPhone}
+                  onChangePhone={(t) => setPhone(sanitizePhoneInput(t))}
                   onSelectRecent={selectRecent}
                   recents={recents}
                   ownNumber={isOwnNumber}
@@ -513,6 +526,7 @@ function RecipientStep({
           placeholder="+250 7XX XXX XXX"
           placeholderTextColor={Brand.textMuted}
           keyboardType="phone-pad"
+          maxLength={13}
           selectionColor={Brand.primary}
         />
       </View>
@@ -591,8 +605,8 @@ function AmountStep({
         <Text style={styles.amountCurrency}>RWF</Text>
         <TextInput
           style={[styles.amountInput, showError && { color: Brand.danger }]}
-          value={amount}
-          onChangeText={(t) => onChangeAmount(t.replace(/\D/g, ''))}
+          value={amountWithCommas(amount)}
+          onChangeText={(t) => onChangeAmount(sanitizeAmountInput(t))}
           placeholder="0"
           placeholderTextColor={Brand.textMuted}
           keyboardType="number-pad"

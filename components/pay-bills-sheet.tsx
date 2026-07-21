@@ -28,7 +28,7 @@ import {
   type WalletDTO,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
-import { formatRWF } from '@/lib/format';
+import { amountWithCommas, formatRWF, sanitizeAmountInput } from '@/lib/format';
 import { fireLocal } from '@/lib/notifications';
 import { useLiteMode } from '@/lib/lite-mode';
 import { getCurrentCoords, type Coords } from '@/lib/location';
@@ -498,10 +498,11 @@ function DetailsStep({
           <TextInput
             style={styles.fieldInput}
             value={account}
-            onChangeText={onChangeAccount}
+            onChangeText={(t) => onChangeAccount(t.replace(/\D/g, '').slice(0, 20))}
             placeholder={biller.account_hint ?? `Enter your ${biller.account_label.toLowerCase()}`}
             placeholderTextColor={Brand.textMuted}
             keyboardType="number-pad"
+            maxLength={20}
             autoFocus
             selectionColor={Brand.primary}
           />
@@ -514,8 +515,8 @@ function DetailsStep({
           <Text style={styles.amountCurrency}>RWF</Text>
           <TextInput
             style={[styles.amountInput, showError && { color: Brand.danger }]}
-            value={amount}
-            onChangeText={(t) => onChangeAmount(t.replace(/\D/g, ''))}
+            value={amountWithCommas(amount)}
+            onChangeText={(t) => onChangeAmount(sanitizeAmountInput(t))}
             placeholder="0"
             placeholderTextColor={Brand.textMuted}
             keyboardType="number-pad"

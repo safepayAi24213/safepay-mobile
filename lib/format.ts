@@ -10,6 +10,21 @@ export function formatRWF(value: number, opts: { hideSign?: boolean } = {}) {
   return RWF_FMT.format(Math.round(n));
 }
 
+/** Largest single transfer the backend accepts (RWF 5,000,000 = 7 digits). */
+export const AMOUNT_MAX_DIGITS = 7;
+
+/** Strip to digits, drop leading zeros, and cap the length so amounts stay
+ *  within backend bounds. Keep the raw digit string in state. */
+export function sanitizeAmountInput(raw: string): string {
+  return raw.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, AMOUNT_MAX_DIGITS);
+}
+
+/** Render a digit string with thousands separators: "1000" -> "1,000". */
+export function amountWithCommas(digits: string): string {
+  const d = digits.replace(/\D/g, '');
+  return d ? RWF_FMT.format(Number(d)) : '';
+}
+
 export function firstName(full?: string | null): string {
   if (!full) return '';
   return full.trim().split(/\s+/)[0] ?? '';
