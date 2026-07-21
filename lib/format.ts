@@ -40,9 +40,14 @@ export function initialsOf(full?: string | null): string {
 
 /**
  * The customer-facing SafePay AI verdict shown on every transaction.
- *   - Blocked  → SafePay AI stopped the payment
- *   - Verified → flagged as unusual but allowed after step-up verification
+ *   - Blocked  → the payment did NOT go through (only a blocklisted recipient)
+ *   - Flagged  → completed, but SafePay AI flagged it as unusual and is
+ *                reviewing it (medium / high / score-blocked)
  *   - Allowed  → passed straight through (routine / low risk)
+ *
+ * Monitor-and-alert policy: a transaction that exists has already settled, so a
+ * non-"blocked" status is never shown as Blocked — even at risk_level=blocked
+ * it went through and is under review.
  */
 export type Verdict = 'allowed' | 'verified' | 'blocked';
 
@@ -52,7 +57,9 @@ export function verdictOf(input: {
 }): Verdict {
   const status = (input.status ?? '').toLowerCase();
   const level = (input.risk_level ?? '').toLowerCase();
-  if (status === 'blocked' || level === 'blocked') return 'blocked';
-  if (level === 'high' || level === 'medium') return 'verified';
+  // Only a genuinely failed/blocked record is "blocked" — a completed payment
+  // is never blocked, even if the score was high enough to flag it.
+  if (status === 'blocked') return 'blocked';
+  if (level === 'high' || level === 'medium' || level === 'blocked') return 'verified';
   return 'allowed';
 }

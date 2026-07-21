@@ -15,10 +15,12 @@ const META: Record<
     icon: 'checkmark-circle',
   },
   verified: {
-    label: 'Verified',
+    // Completed, but flagged by SafePay AI and under review (not "verified" —
+    // nothing is stepped-up; the payment went through and is being watched).
+    label: 'Flagged',
     color: Brand.warning,
     bg: Brand.warningSoft,
-    icon: 'shield-checkmark',
+    icon: 'alert-circle',
   },
   blocked: {
     label: 'Blocked',
