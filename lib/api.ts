@@ -570,23 +570,26 @@ export const onboarding = {
       { method: 'POST', token, body: input },
     );
   },
-  uploadIdDocument(token: string, fileUri: string) {
+  uploadIdDocument(token: string, fileUri: string, side: 'front' | 'back' = 'front') {
     const formData = new FormData();
     const name = fileUri.split('/').pop() || 'id.jpg';
     const match = /\.(\w+)$/.exec(name);
     const type = match ? `image/${match[1]}` : 'image/jpeg';
-    
+
     formData.append('file', {
       uri: fileUri,
       name,
       type,
     } as any);
 
-    return request<{ id_document_url: string }>('/api/v1/auth/verify-id/document', {
-      method: 'POST',
-      token,
-      body: formData,
-    });
+    return request<{ id_document_url: string; id_document_back_url: string | null }>(
+      `/api/v1/auth/verify-id/document?side=${side}`,
+      {
+        method: 'POST',
+        token,
+        body: formData,
+      },
+    );
   },
   setPin(token: string, pin: string) {
     return request<{ set: boolean }>('/api/v1/auth/pin', {

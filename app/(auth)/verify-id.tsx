@@ -123,9 +123,13 @@ export default function VerifyId() {
           national_id: docNumber.trim(),
         });
 
-        // 2. Upload front document photo (primary document image)
+        // 2. Upload document photos — front, then back (national ID has two
+        //    sides; passport is single-sided so back is skipped).
         if (frontImageUri) {
-          await onboarding.uploadIdDocument(token, frontImageUri);
+          await onboarding.uploadIdDocument(token, frontImageUri, 'front');
+        }
+        if (backImageUri) {
+          await onboarding.uploadIdDocument(token, backImageUri, 'back');
         }
       }
       router.replace({ pathname: '/(auth)/create-pin', params: { phone: params.phone } });
