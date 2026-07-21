@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -16,7 +17,7 @@ import { PinDots, PinPad } from '@/components/ui/pin-pad';
 import { RiskBadge } from '@/components/ui/risk-badge';
 import { Brand, Radius, Spacing } from '@/constants/theme';
 import { useAccountState } from '@/lib/account-state';
-import { ApiError, onboarding, risk as apiRisk, transactions as apiTransactions, wallets as apiWallets, type WalletDTO } from '@/lib/api';
+import { ApiError, onboarding, recipients as apiRecipients, risk as apiRisk, transactions as apiTransactions, wallets as apiWallets, type RecipientPreview, type WalletDTO } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { amountWithCommas, formatRWF, sanitizeAmountInput } from '@/lib/format';
 import { useLiteMode } from '@/lib/lite-mode';
@@ -82,6 +83,8 @@ export function SendMoneySheet({ visible, onClose, onComplete }: Props) {
   const [step, setStep] = useState<Step>('recipient');
   const [phone, setPhone] = useState('');
   const [recipientName, setRecipientName] = useState<string | null>(null);
+  const [preview, setPreview] = useState<RecipientPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [source, setSource] = useState<MoneySource>('MTN MoMo');
@@ -131,6 +134,35 @@ export function SendMoneySheet({ visible, onClose, onComplete }: Props) {
       cancelled = true;
     };
   }, [visible]);
+
+  // Live recipient preview: once a full number is entered, confirm against
+  // SafePay's records (masked name + KYC). Debounced so we don't hit the API
+  // on every keystroke. Own number and offline are skipped — the reset stays
+  // in a callback (never a synchronous setState in the effect body).
+  useEffect(() => {
+    const local = toLocalDigits(phone);
+    const isOwn = !!user?.phone && local.length >= 9 && local === toLocalDigits(user.phone);
+    if (!token || !isOnline || isOwn || local.length < 10) {
+      const t = setTimeout(() => {
+        setPreview(null);
+        setPreviewLoading(false);
+      }, 0);
+      return () => clearTimeout(t);
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    const t = setTimeout(() => {
+      apiRecipients
+        .preview(token, phone, source)
+        .then((r) => !cancelled && setPreview(r))
+        .catch(() => !cancelled && setPreview(null))
+        .finally(() => !cancelled && setPreviewLoading(false));
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [phone, source, token, isOnline, user?.phone]);
 
   useEffect(() => {
     if (!visible) {
@@ -385,6 +417,8 @@ export function SendMoneySheet({ visible, onClose, onComplete }: Props) {
                   onSelectRecent={selectRecent}
                   recents={recents}
                   ownNumber={isOwnNumber}
+                  preview={preview}
+                  previewLoading={previewLoading}
                 />
               )}
               {step === 'amount' && (
@@ -502,18 +536,71 @@ function PinStep({
   );
 }
 
+/** A single confirmation line under the phone field: who the number belongs to
+ *  (masked), or a clear "not a registered SafePay number" warning. */
+function RecipientPreviewLine({
+  preview,
+  loading,
+}: {
+  preview: RecipientPreview | null;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <View style={styles.previewRow}>
+        <ActivityIndicator size="small" color={Brand.textMuted} />
+        <Text style={styles.previewMuted}>Checking recipient…</Text>
+      </View>
+    );
+  }
+  if (!preview) return null;
+
+  if (preview.status === 'found') {
+    const verified = preview.kyc_status === 'verified';
+    return (
+      <View style={[styles.previewRow, styles.previewFound]}>
+        <Ionicons
+          name={verified ? 'shield-checkmark' : 'person-circle-outline'}
+          size={18}
+          color={verified ? Brand.success : Brand.primary}
+        />
+        <Text style={styles.previewFoundText}>
+          {preview.display_name ?? 'SafePay user'}
+          <Text style={styles.previewMuted}>
+            {'  ·  '}
+            {verified ? 'KYC verified' : `KYC ${preview.kyc_status ?? 'pending'}`}
+          </Text>
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.previewRow, styles.previewUnknown]}>
+      <Ionicons name="alert-circle-outline" size={18} color={Brand.warning} />
+      <Text style={styles.previewUnknownText}>
+        Not a registered SafePay number — double-check before sending.
+      </Text>
+    </View>
+  );
+}
+
 function RecipientStep({
   phone,
   onChangePhone,
   onSelectRecent,
   recents,
   ownNumber,
+  preview,
+  previewLoading,
 }: {
   phone: string;
   onChangePhone: (v: string) => void;
   onSelectRecent: (r: RecentRecipient) => void;
   recents: RecentRecipient[];
   ownNumber?: boolean;
+  preview: RecipientPreview | null;
+  previewLoading: boolean;
 }) {
   return (
     <View style={{ gap: Spacing.lg }}>
@@ -536,6 +623,8 @@ function RecipientStep({
           You can&apos;t send money to your own number.
         </Text>
       )}
+
+      {!ownNumber && <RecipientPreviewLine preview={preview} loading={previewLoading} />}
 
       {recents.length > 0 && (
       <View style={{ paddingBottom: Spacing.lg }}>
@@ -850,6 +939,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Brand.danger,
     fontWeight: '600',
+  },
+  previewRow: {
+    marginTop: -Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: Radius.md,
+  },
+  previewFound: {
+    backgroundColor: Brand.successSoft,
+  },
+  previewUnknown: {
+    backgroundColor: Brand.warningSoft,
+  },
+  previewFoundText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Brand.text,
+  },
+  previewUnknownText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Brand.warning,
+  },
+  previewMuted: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: Brand.textMuted,
   },
   fieldInput: {
     flex: 1,

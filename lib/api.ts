@@ -389,6 +389,23 @@ export const transactions = {
   },
 };
 
+// ─── Recipient preview (pre-send confirmation) ─────────────────────────────
+
+export type RecipientPreview = {
+  status: 'found' | 'not_found';
+  display_name: string | null; // masked, e.g. "P*** U***"
+  kyc_status: string | null; // "verified" | "pending" | "unverified"
+};
+
+export const recipients = {
+  /** Look a recipient up in SafePay's internal records before sending.
+   *  Names are always masked; unknown numbers return status "not_found". */
+  preview(token: string, phone: string, source: MoneySource = 'MTN MoMo') {
+    const qs = new URLSearchParams({ phone, source });
+    return request<RecipientPreview>(`/api/v1/recipients/preview?${qs.toString()}`, { token });
+  },
+};
+
 // ─── Risk (real-time scoring preview) ──────────────────────────────────────
 
 export const risk = {
