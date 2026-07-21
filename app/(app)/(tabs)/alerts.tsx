@@ -47,9 +47,9 @@ function fromApi(a: ApiFraudAlert): FraudAlert {
     at: new Date(a.created_at).toLocaleString('en-GB', {
       day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
     }),
-    amount: 0, // backend alert doesn't carry amount yet; populated from txn if needed
-    recipientName: a.summary,
-    recipientDetail: a.signals.map((s) => s.code).slice(0, 2).join(', '),
+    amount: a.amount ? parseFloat(a.amount) : 0,
+    recipientName: a.recipient_name ?? a.summary,
+    recipientDetail: a.recipient_phone ?? a.signals.map((s) => s.code).slice(0, 2).join(', '),
     riskLevel: a.level,
     confidence: parseFloat(a.confidence),
     signals: a.signals.map((s) => s.label),

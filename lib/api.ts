@@ -433,6 +433,10 @@ export type ApiFraudAlert = {
   status: AlertStatus;
   created_at: string;
   resolved_at: string | null;
+  // Details of the flagged transaction (null for anomaly alerts).
+  amount: string | null;
+  recipient_name: string | null;
+  recipient_phone: string | null;
 };
 
 export type AlertListResponse = {

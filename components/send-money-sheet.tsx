@@ -610,7 +610,7 @@ function RecipientStep({
           style={styles.fieldInput}
           value={phone}
           onChangeText={onChangePhone}
-          placeholder="+250 7XX XXX XXX"
+          placeholder="07XX XXX XXX"
           placeholderTextColor={Brand.textMuted}
           keyboardType="phone-pad"
           maxLength={13}
